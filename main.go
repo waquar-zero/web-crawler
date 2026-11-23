@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"time"
+	"syscall"
 )
 
 func main() {
@@ -17,7 +21,13 @@ func main() {
 		true,
 		"Only crawl URLs belonging to the starting hostname",
 	)
+	maxPagesFlag := flag.Int("max-pages", 50, "Maximum number of unique pages to crawl")
 
+	timeoutFlag := flag.Duration(
+		"timeout",
+		30*time.Second,
+		"Maximum total crawl duration",
+	)
 	//parse the flags
 	flag.Parse()
 
@@ -26,6 +36,26 @@ func main() {
 		fmt.Println("Please provide a starting URL using the -url flag.")
 		return
 	}
+
+	if *maxPagesFlag <= 0 {
+		fmt.Println("Error: max-pages must be greater than zero")
+		return
+	}
+
+	if *timeoutFlag <= 0 {
+		fmt.Println("Error: timeout must be greater than zero")
+		return
+	}
+
+	signalCtx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(signalCtx, *timeoutFlag)
+	defer cancel()
 
 	parsedURL, err := url.Parse(*urlFlag)
 	if err != nil {
@@ -57,7 +87,11 @@ func main() {
 	//crawl beings
 	fmt.Printf("Starting crawl: %s (depth: %d)\n", *urlFlag, *depthFlag)
 
-	Crawl(*urlFlag, *depthFlag, fetcher, *sameDomainFlag)
+	Crawl(ctx, *urlFlag, *depthFlag, fetcher, *sameDomainFlag, *maxPagesFlag)
 
-	fmt.Println("Crawl completed.")
+	if err := ctx.Err(); err != nil {
+		fmt.Println("Crawl stopped:", err)
+	} else {
+		fmt.Println("Crawl completed.")
+	}
 }

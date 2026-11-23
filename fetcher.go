@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"golang.org/x/net/html"
 	"io"
@@ -8,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"errors"
 )
 
 var ErrNonHTML = errors.New("non-HTML content")
@@ -17,8 +18,16 @@ type HTTPFetcher struct {
 	Client *http.Client
 }
 
-func (h HTTPFetcher) Fetch(url string) (body string, urls []string, err error) {
-	resp, err := h.Client.Get(url)
+func (h HTTPFetcher) Fetch(ctx context.Context, url string) (body string, urls []string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", nil, err
+	}
+
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
 	if err != nil {
 		return "", nil, err
 	}
@@ -38,7 +47,7 @@ func (h HTTPFetcher) Fetch(url string) (body string, urls []string, err error) {
 		return "", nil, err
 	}
 	if mediaType != "text/html" {
-    return "", nil, ErrNonHTML
+		return "", nil, ErrNonHTML
 	}
 
 	//don't want to exceed 2 MiB

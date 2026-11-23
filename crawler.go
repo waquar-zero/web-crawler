@@ -1,14 +1,19 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
-	"errors"
 )
 
 type Fetcher interface {
-	Fetch(url string) (body string, urls []string, err error)
+	Fetch(ctx context.Context, url string) (
+		body string,
+		urls []string,
+		err error,
+	)
 }
 
 func isSameDomain(link string, startingHost string) bool {
@@ -20,6 +25,7 @@ func isSameDomain(link string, startingHost string) bool {
 }
 
 func crawlHelper(
+	ctx context.Context,
 	url string,
 	depth int,
 	f Fetcher,
@@ -29,12 +35,30 @@ func crawlHelper(
 	sem chan struct{},
 	startingHost string,
 	sameDomainOnly bool,
+	maxPages int,
 ) {
 	defer wg.Done()
+	if depth <= 0 || ctx.Err() != nil {
+    return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
 
 	if depth <= 0 {
 		return
 	}
+
+	//normalization of url
+	normalizedURL, err := normalizeURL(url)
+	if err != nil {
+		fmt.Printf("Invalid URL %s: %v\n", url, err)
+		return
+	}
+
+	url = normalizedURL
 
 	// Step 1: Check whether URL was visited
 	mu.Lock()
@@ -44,19 +68,32 @@ func crawlHelper(
 		return
 	}
 
+	if len(m) >= maxPages {
+		mu.Unlock()
+		return
+	}
+
 	m[url] = true
 	mu.Unlock()
 
 	// Step 2: Acquire a semaphore slot
-	sem <- struct{}{}
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+    return
+	}
 
-	// Step 3: Fetch the URL
-	_, urls, err := f.Fetch(url)
+	_, urls, err := f.Fetch(ctx, url)
 
-	// Step 4: Release the semaphore slot
+	// Release the slot after fetching
 	<-sem
 
 	if err != nil {
+    if errors.Is(err, context.Canceled) ||
+        errors.Is(err, context.DeadlineExceeded) {
+        return
+    }
+
     if errors.Is(err, ErrNonHTML) {
         return
     }
@@ -75,17 +112,27 @@ func crawlHelper(
 		return
 	}
 
+	if ctx.Err() != nil {
+		return
+	}
 	// Step 5: Crawl discovered URLs
 	for _, u := range urls {
+		
+    if ctx.Err() != nil {
+        return
+    }
 
-		// wont be checking external websites if sameDomainOnly is true
-		if sameDomainOnly && !isSameDomain(u, startingHost) {
+	if shouldSkipURL(u) {
+        continue
+    }
+
+	if sameDomainOnly && !isSameDomain(u, startingHost) {
 			continue
-		}
-
+	}
 		wg.Add(1)
 
 		go crawlHelper(
+			ctx,
 			u,
 			depth-1,
 			f,
@@ -95,15 +142,18 @@ func crawlHelper(
 			sem,
 			startingHost,
 			sameDomainOnly,
+			maxPages,
 		)
 	}
 }
 
 func Crawl(
+	ctx context.Context,
 	startURL string,
 	depth int,
 	f Fetcher,
 	sameDomainOnly bool,
+	maxPages int,
 ) {
 	visited := make(map[string]bool)
 
@@ -124,6 +174,7 @@ func Crawl(
 	wg.Add(1)
 
 	crawlHelper(
+		ctx,
 		startURL,
 		depth,
 		f,
@@ -133,6 +184,7 @@ func Crawl(
 		sem,
 		startingHost,
 		sameDomainOnly,
+		maxPages,
 	)
 
 	wg.Wait()

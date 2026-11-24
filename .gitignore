@@ -1,0 +1,20 @@
+
+# Compiled binaries
+/crawler
+/crawler.exe
+/*.test
+/*.out
+
+# Coverage and profiling
+coverage.out
+*.prof
+
+# Local environment files
+.env
+.env.*
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

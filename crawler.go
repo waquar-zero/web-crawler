@@ -36,19 +36,13 @@ func crawlHelper(
 	startingHost string,
 	sameDomainOnly bool,
 	maxPages int,
+	robots *RobotsChecker,
+	limiter *HostLimiter,
 ) {
 	defer wg.Done()
+	
 	if depth <= 0 || ctx.Err() != nil {
     return
-	}
-	select {
-	case <-ctx.Done():
-		return
-	default:
-	}
-
-	if depth <= 0 {
-		return
 	}
 
 	//normalization of url
@@ -76,11 +70,27 @@ func crawlHelper(
 	m[url] = true
 	mu.Unlock()
 
+	
+	allowed, err := robots.Allowed(ctx, url)
+	if err != nil {
+		fmt.Printf("Skipping %s: robots check failed: %v\n", url, err)
+		return
+	}
+
+	if !allowed {
+		fmt.Printf("Skipping %s: disallowed by robots.txt\n", url)
+		return
+	}
+
+	if err := limiter.Wait(ctx, url); err != nil {
+		return
+	}
+
 	// Step 2: Acquire a semaphore slot
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
-    return
+		return
 	}
 
 	_, urls, err := f.Fetch(ctx, url)
@@ -89,17 +99,17 @@ func crawlHelper(
 	<-sem
 
 	if err != nil {
-    if errors.Is(err, context.Canceled) ||
-        errors.Is(err, context.DeadlineExceeded) {
-        return
-    }
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
 
-    if errors.Is(err, ErrNonHTML) {
-        return
-    }
+		if errors.Is(err, ErrNonHTML) {
+			return
+		}
 
-    fmt.Printf("Failed to crawl %s: %v\n", url, err)
-    return
+		fmt.Printf("Failed to crawl %s: %v\n", url, err)
+		return
 	}
 
 	fmt.Printf(
@@ -117,18 +127,18 @@ func crawlHelper(
 	}
 	// Step 5: Crawl discovered URLs
 	for _, u := range urls {
-		
-    if ctx.Err() != nil {
-        return
-    }
 
-	if shouldSkipURL(u) {
-        continue
-    }
+		if ctx.Err() != nil {
+			return
+		}
 
-	if sameDomainOnly && !isSameDomain(u, startingHost) {
+		if shouldSkipURL(u) {
 			continue
-	}
+		}
+
+		if sameDomainOnly && !isSameDomain(u, startingHost) {
+			continue
+		}
 		wg.Add(1)
 
 		go crawlHelper(
@@ -143,6 +153,8 @@ func crawlHelper(
 			startingHost,
 			sameDomainOnly,
 			maxPages,
+			robots,
+			limiter,
 		)
 	}
 }
@@ -154,6 +166,8 @@ func Crawl(
 	f Fetcher,
 	sameDomainOnly bool,
 	maxPages int,
+	robots *RobotsChecker,
+	limiter *HostLimiter,
 ) {
 	visited := make(map[string]bool)
 
@@ -185,6 +199,8 @@ func Crawl(
 		startingHost,
 		sameDomainOnly,
 		maxPages,
+		robots,
+		limiter,
 	)
 
 	wg.Wait()

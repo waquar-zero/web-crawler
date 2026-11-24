@@ -3,35 +3,35 @@ package main
 import (
 	"net"
 	"net/url"
-	"strings"
 	"path"
+	"strings"
 )
 
 func shouldSkipURL(rawURL string) bool {
-    parsed, err := url.Parse(rawURL)
-    if err != nil {
-        return true
-    }
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return true
+	}
 
-    ext := strings.ToLower(path.Ext(parsed.Path))
+	ext := strings.ToLower(path.Ext(parsed.Path))
 
-    blockedExtensions := map[string]bool{
-        ".pdf":  true,
-        ".jpg":  true,
-        ".jpeg": true,
-        ".png":  true,
-        ".gif":  true,
-        ".webp": true,
-        ".svg":  true,
-        ".mp4":  true,
-        ".mp3":  true,
-        ".zip":  true,
-        ".exe":  true,
-        ".css":  true,
-        ".js":   true,
-    }
+	blockedExtensions := map[string]bool{
+		".pdf":  true,
+		".jpg":  true,
+		".jpeg": true,
+		".png":  true,
+		".gif":  true,
+		".webp": true,
+		".svg":  true,
+		".mp4":  true,
+		".mp3":  true,
+		".zip":  true,
+		".exe":  true,
+		".css":  true,
+		".js":   true,
+	}
 
-    return blockedExtensions[ext]
+	return blockedExtensions[ext]
 }
 
 func normalizeURL(rawURL string) (string, error) {

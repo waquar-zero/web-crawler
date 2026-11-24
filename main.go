@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"time"
 	"syscall"
+	"time"
 )
 
 func main() {
@@ -28,6 +28,12 @@ func main() {
 		30*time.Second,
 		"Maximum total crawl duration",
 	)
+
+	delayFlag := flag.Duration(
+		"delay",
+		500*time.Millisecond,
+		"Minimum delay between requests to the same host",
+	)
 	//parse the flags
 	flag.Parse()
 
@@ -44,6 +50,10 @@ func main() {
 
 	if *timeoutFlag <= 0 {
 		fmt.Println("Error: timeout must be greater than zero")
+		return
+	}
+	if *delayFlag < 0 {
+		fmt.Println("Error: delay cannot be negative")
 		return
 	}
 
@@ -84,10 +94,13 @@ func main() {
 	}
 	fetcher := HTTPFetcher{Client: client}
 
+	robots := NewRobotsChecker(client)
+	limiter := NewHostLimiter(*delayFlag)
+
 	//crawl beings
 	fmt.Printf("Starting crawl: %s (depth: %d)\n", *urlFlag, *depthFlag)
 
-	Crawl(ctx, *urlFlag, *depthFlag, fetcher, *sameDomainFlag, *maxPagesFlag)
+	Crawl(ctx, *urlFlag, *depthFlag, fetcher, *sameDomainFlag, *maxPagesFlag, robots, limiter)
 
 	if err := ctx.Err(); err != nil {
 		fmt.Println("Crawl stopped:", err)

@@ -20,6 +20,7 @@ type HTTPFetcher struct {
 
 func (h HTTPFetcher) Fetch(ctx context.Context, url string) (body string, urls []string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req.Header.Set("User-Agent", "GoCrawler/1.0")
 	if err != nil {
 		return "", nil, err
 	}
